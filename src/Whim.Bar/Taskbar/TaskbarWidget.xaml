@@ -41,7 +41,7 @@
 		</ItemsControl>
 
 		<!--  Other workspace windows (dimmed, clicking moves them here)  -->
-		<ItemsControl ItemsSource="{x:Bind ViewModel.OtherWorkspaceWindows}">
+		<ItemsControl Margin="8,0,0,0" ItemsSource="{x:Bind ViewModel.OtherWorkspaceWindows}">
 			<ItemsControl.ItemsPanel>
 				<ItemsPanelTemplate>
 					<StackPanel Orientation="Horizontal" />
@@ -54,7 +54,7 @@
 						MaxWidth="200"
 						Opacity="0.5"
 						Style="{StaticResource bar:workspace:button}"
-						ToolTipService.ToolTip="{x:Bind WorkspaceName}"
+						ToolTipService.ToolTip="{x:Bind WorkspaceName, Mode=OneWay}"
 					>
 						<Button.Resources>
 							<SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="{StaticResource bar:hover:background}" />

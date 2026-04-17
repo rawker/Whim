@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Whim.Bar;
@@ -11,6 +12,11 @@ internal class TaskbarWidgetViewModel : IDisposable
 {
 	private readonly IContext _context;
 	private bool _disposedValue;
+
+	/// <summary>
+	/// Fast lookup from window handle to its model, kept in sync with both collections.
+	/// </summary>
+	private readonly Dictionary<HWND, TaskbarWindowModel> _windowModelIndex = [];
 
 	/// <summary>
 	/// The monitor this taskbar widget is displayed on.
@@ -39,6 +45,7 @@ internal class TaskbarWidgetViewModel : IDisposable
 		_context.Store.MapEvents.MonitorWorkspaceChanged += MapEvents_MonitorWorkspaceChanged;
 		_context.Store.WindowEvents.WindowMinimizeStarted += WindowEvents_WindowMinimizeStarted;
 		_context.Store.WindowEvents.WindowMinimizeEnded += WindowEvents_WindowMinimizeEnded;
+		_context.Store.WorkspaceEvents.WorkspaceRenamed += WorkspaceEvents_WorkspaceRenamed;
 
 		UpdateWindowCollections();
 	}
@@ -47,6 +54,7 @@ internal class TaskbarWidgetViewModel : IDisposable
 	{
 		CurrentWorkspaceWindows.Clear();
 		OtherWorkspaceWindows.Clear();
+		_windowModelIndex.Clear();
 
 		IWorkspace? currentWorkspace = _context
 			.Store.Pick(Pickers.PickWorkspaceByMonitor(Monitor.Handle))
@@ -55,7 +63,6 @@ internal class TaskbarWidgetViewModel : IDisposable
 		foreach (IWorkspace workspace in _context.Store.Pick(Pickers.PickWorkspaces()))
 		{
 			bool isCurrentWorkspace = currentWorkspace?.Id == workspace.Id;
-			string workspaceName = workspace.Name;
 
 			foreach (
 				IWindow window in _context
@@ -63,16 +70,22 @@ internal class TaskbarWidgetViewModel : IDisposable
 					.ValueOrDefault ?? []
 			)
 			{
-				TaskbarWindowModel model = new(_context, this, window, isCurrentWorkspace, workspaceName);
-				if (isCurrentWorkspace)
-				{
-					CurrentWorkspaceWindows.Add(model);
-				}
-				else
-				{
-					OtherWorkspaceWindows.Add(model);
-				}
+				AddModel(new TaskbarWindowModel(_context, this, window, isCurrentWorkspace, workspace.Name, workspace.Id));
 			}
+		}
+	}
+
+	private void AddModel(TaskbarWindowModel model)
+	{
+		_windowModelIndex[model.Window.Handle] = model;
+
+		if (model.IsOnCurrentWorkspace)
+		{
+			CurrentWorkspaceWindows.Add(model);
+		}
+		else
+		{
+			OtherWorkspaceWindows.Add(model);
 		}
 	}
 
@@ -84,11 +97,7 @@ internal class TaskbarWidgetViewModel : IDisposable
 
 		if (args.PreviousWorkspace != null)
 		{
-			TaskbarWindowModel? existing =
-				CurrentWorkspaceWindows.FirstOrDefault(m => m.Window.Handle == args.Window.Handle)
-				?? OtherWorkspaceWindows.FirstOrDefault(m => m.Window.Handle == args.Window.Handle);
-
-			if (existing != null)
+			if (_windowModelIndex.Remove(args.Window.Handle, out TaskbarWindowModel? existing))
 			{
 				if (existing.IsOnCurrentWorkspace)
 				{
@@ -104,22 +113,16 @@ internal class TaskbarWidgetViewModel : IDisposable
 		if (args.CurrentWorkspace != null)
 		{
 			bool isCurrentWorkspace = currentWorkspace?.Id == args.CurrentWorkspace.Id;
-			TaskbarWindowModel model = new(
-				_context,
-				this,
-				args.Window,
-				isCurrentWorkspace,
-				args.CurrentWorkspace.Name
+			AddModel(
+				new TaskbarWindowModel(
+					_context,
+					this,
+					args.Window,
+					isCurrentWorkspace,
+					args.CurrentWorkspace.Name,
+					args.CurrentWorkspace.Id
+				)
 			);
-
-			if (isCurrentWorkspace)
-			{
-				CurrentWorkspaceWindows.Add(model);
-			}
-			else
-			{
-				OtherWorkspaceWindows.Add(model);
-			}
 		}
 	}
 
@@ -135,11 +138,7 @@ internal class TaskbarWidgetViewModel : IDisposable
 
 	private void WindowEvents_WindowMinimizeStarted(object? sender, WindowMinimizeStartedEventArgs args)
 	{
-		TaskbarWindowModel? model =
-			CurrentWorkspaceWindows.FirstOrDefault(m => m.Window.Handle == args.Window.Handle)
-			?? OtherWorkspaceWindows.FirstOrDefault(m => m.Window.Handle == args.Window.Handle);
-
-		if (model != null)
+		if (_windowModelIndex.TryGetValue(args.Window.Handle, out TaskbarWindowModel? model))
 		{
 			model.IsMinimized = true;
 		}
@@ -147,13 +146,17 @@ internal class TaskbarWidgetViewModel : IDisposable
 
 	private void WindowEvents_WindowMinimizeEnded(object? sender, WindowMinimizeEndedEventArgs args)
 	{
-		TaskbarWindowModel? model =
-			CurrentWorkspaceWindows.FirstOrDefault(m => m.Window.Handle == args.Window.Handle)
-			?? OtherWorkspaceWindows.FirstOrDefault(m => m.Window.Handle == args.Window.Handle);
-
-		if (model != null)
+		if (_windowModelIndex.TryGetValue(args.Window.Handle, out TaskbarWindowModel? model))
 		{
 			model.IsMinimized = false;
+		}
+	}
+
+	private void WorkspaceEvents_WorkspaceRenamed(object? sender, WorkspaceRenamedEventArgs e)
+	{
+		foreach (TaskbarWindowModel model in OtherWorkspaceWindows.Where(m => m.WorkspaceId == e.Workspace.Id))
+		{
+			model.WorkspaceName = e.Workspace.Name;
 		}
 	}
 
@@ -168,6 +171,7 @@ internal class TaskbarWidgetViewModel : IDisposable
 				_context.Store.MapEvents.MonitorWorkspaceChanged -= MapEvents_MonitorWorkspaceChanged;
 				_context.Store.WindowEvents.WindowMinimizeStarted -= WindowEvents_WindowMinimizeStarted;
 				_context.Store.WindowEvents.WindowMinimizeEnded -= WindowEvents_WindowMinimizeEnded;
+				_context.Store.WorkspaceEvents.WorkspaceRenamed -= WorkspaceEvents_WorkspaceRenamed;
 			}
 
 			_disposedValue = true;

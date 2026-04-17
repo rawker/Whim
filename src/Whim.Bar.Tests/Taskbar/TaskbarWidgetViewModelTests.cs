@@ -310,6 +310,63 @@ public class TaskbarWidgetViewModelTests
 		Assert.False(sut.CurrentWorkspaceWindows[0].IsMinimized);
 	}
 
+	[Theory, AutoSubstituteData<StoreCustomization>]
+	internal void WorkspaceRenamed_UpdatesWorkspaceNameOnOtherWorkspaceWindows(IContext ctx, MutableRootSector root)
+	{
+		// Given
+		IMonitor monitor = CreateMonitor((HMONITOR)100);
+		Workspace currentWorkspace = CreateWorkspace();
+		Workspace otherWorkspace = CreateWorkspace();
+		IWindow window = CreateWindow((HWND)1);
+
+		PopulateMonitorWorkspaceMap(root, monitor, currentWorkspace);
+		PopulateWindowWorkspaceMap(root, window, otherWorkspace);
+
+		TaskbarWidgetViewModel sut = new(ctx, monitor);
+		Assert.Single(sut.OtherWorkspaceWindows);
+
+		// When
+		otherWorkspace = otherWorkspace with { Name = "Renamed" };
+		root.WorkspaceSector.Workspaces = root.WorkspaceSector.Workspaces.SetItem(otherWorkspace.Id, otherWorkspace);
+		root.WorkspaceSector.QueueEvent(
+			new WorkspaceRenamedEventArgs() { Workspace = otherWorkspace, PreviousName = "Old Name" }
+		);
+		root.DispatchEvents();
+
+		// Then
+		Assert.Equal("Renamed", sut.OtherWorkspaceWindows[0].WorkspaceName);
+	}
+
+	[Theory, AutoSubstituteData<StoreCustomization>]
+	internal void WorkspaceRenamed_DoesNotAffectCurrentWorkspaceWindows(IContext ctx, MutableRootSector root)
+	{
+		// Given
+		IMonitor monitor = CreateMonitor((HMONITOR)100);
+		Workspace currentWorkspace = CreateWorkspace();
+		IWindow window = CreateWindow((HWND)1);
+
+		PopulateThreeWayMap(root, monitor, currentWorkspace, window);
+
+		TaskbarWidgetViewModel sut = new(ctx, monitor);
+		Assert.Single(sut.CurrentWorkspaceWindows);
+
+		// When - renaming the current workspace should not affect CurrentWorkspaceWindows models
+		currentWorkspace = currentWorkspace with { Name = "Renamed" };
+		root.WorkspaceSector.Workspaces = root.WorkspaceSector.Workspaces.SetItem(
+			currentWorkspace.Id,
+			currentWorkspace
+		);
+		root.WorkspaceSector.QueueEvent(
+			new WorkspaceRenamedEventArgs() { Workspace = currentWorkspace, PreviousName = "Old Name" }
+		);
+
+		CustomAssert.DoesNotPropertyChange(
+			h => sut.CurrentWorkspaceWindows[0].PropertyChanged += h,
+			h => sut.CurrentWorkspaceWindows[0].PropertyChanged -= h,
+			root.DispatchEvents
+		);
+	}
+
 	[Theory, AutoSubstituteData]
 	public void Dispose_UnsubscribesAllEvents(IContext ctx, IMonitor monitor)
 	{
@@ -327,6 +384,8 @@ public class TaskbarWidgetViewModelTests
 			Arg.Any<EventHandler<WindowMinimizeStartedEventArgs>>();
 		ctx.Store.WindowEvents.Received(1).WindowMinimizeEnded +=
 			Arg.Any<EventHandler<WindowMinimizeEndedEventArgs>>();
+		ctx.Store.WorkspaceEvents.Received(1).WorkspaceRenamed +=
+			Arg.Any<EventHandler<WorkspaceRenamedEventArgs>>();
 
 		ctx.Store.MapEvents.Received(1).WindowRouted -= Arg.Any<EventHandler<RouteEventArgs>>();
 		ctx.Store.MapEvents.Received(1).MonitorWorkspaceChanged -=
@@ -335,5 +394,7 @@ public class TaskbarWidgetViewModelTests
 			Arg.Any<EventHandler<WindowMinimizeStartedEventArgs>>();
 		ctx.Store.WindowEvents.Received(1).WindowMinimizeEnded -=
 			Arg.Any<EventHandler<WindowMinimizeEndedEventArgs>>();
+		ctx.Store.WorkspaceEvents.Received(1).WorkspaceRenamed -=
+			Arg.Any<EventHandler<WorkspaceRenamedEventArgs>>();
 	}
 }

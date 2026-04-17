@@ -7,13 +7,15 @@ namespace Whim.Bar;
 /// </summary>
 internal class TaskbarWindowModel : INotifyPropertyChanged
 {
-	private readonly IContext _context;
-	private readonly TaskbarWidgetViewModel _viewModel;
-
 	/// <summary>
 	/// The window represented by this model.
 	/// </summary>
 	public IWindow Window { get; }
+
+	/// <summary>
+	/// The ID of the workspace this window belongs to.
+	/// </summary>
+	public WorkspaceId WorkspaceId { get; }
 
 	/// <summary>
 	/// The title of the window.
@@ -87,16 +89,16 @@ internal class TaskbarWindowModel : INotifyPropertyChanged
 		TaskbarWidgetViewModel viewModel,
 		IWindow window,
 		bool isOnCurrentWorkspace,
-		string workspaceName
+		string workspaceName,
+		WorkspaceId workspaceId
 	)
 	{
-		_context = context;
-		_viewModel = viewModel;
 		Window = window;
+		WorkspaceId = workspaceId;
 		_isMinimized = window.IsMinimized;
 		_isOnCurrentWorkspace = isOnCurrentWorkspace;
 		_workspaceName = workspaceName;
-		ActivateWindowCommand = new ActivateWindowCommand(_context, _viewModel, this);
+		ActivateWindowCommand = new ActivateWindowCommand(context, viewModel, this);
 	}
 
 	/// <inheritdoc/>
